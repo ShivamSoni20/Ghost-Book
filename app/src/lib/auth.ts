@@ -8,8 +8,7 @@ export async function getAuthToken(wallet: anchor.Wallet): Promise<string> {
   ).then(r => r.json());
 
   const messageBytes = new TextEncoder().encode(challenge);
-  // @ts-ignore
-  const signature = await wallet.signMessage(messageBytes);
+  const signature = await (wallet as any).signMessage(messageBytes);
   const signatureBase64 = Buffer.from(signature).toString("base64");
 
   const { token } = await fetch(`${PAYMENTS_API}/v1/spl/login`, {

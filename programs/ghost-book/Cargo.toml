@@ -8,13 +8,14 @@ crate-type = ["cdylib", "lib"]
 name = "ghost_book"
 
 [dependencies]
-anchor-lang = "0.30.1"
-anchor-spl = "0.30.1"
-ephemeral-rollups-sdk = { version = "0.5.0", features = ["anchor"] }
-magicblock-magic-program-api = { version = "0.3.1", default-features = false }
-bincode = "^1.3"
+anchor-lang  = "1.0.2"
+anchor-spl   = "1.0.2"
+ephemeral-rollups-sdk = { version = "0.15", features = ["anchor"] }
+bincode      = "^1.3"
+magicblock-magic-program-api = { version = "0.10.1", default-features = false }
 
 [features]
-default = []
-cpi = ["no-entrypoint"]
+default       = []
+cpi           = ["no-entrypoint"]
 no-entrypoint = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]

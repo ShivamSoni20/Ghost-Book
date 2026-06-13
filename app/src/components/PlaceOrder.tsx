@@ -1,42 +1,51 @@
 import React, { useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { getErProgram, getOrderPda, getSponsorPda } from '../lib/program';
 import { erConnection } from '../lib/connections';
 import * as anchor from '@coral-xyz/anchor';
 
 export default function PlaceOrder() {
   const wallet = useWallet();
+  const anchorWallet = useAnchorWallet();
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [price, setPrice] = useState(142.0);
   const [size, setSize] = useState(1.0);
   const [status, setStatus] = useState<'idle' | 'encrypting' | 'placed'>('idle');
 
   async function handlePlaceOrder() {
-    if (!wallet.publicKey || !wallet.signTransaction) return;
+    if (!anchorWallet) return;
     setStatus('encrypting');
     try {
-      const ts = Date.now();
-      const [orderPda] = getOrderPda(wallet.publicKey, ts);
-      const [sponsorPda] = getSponsorPda(wallet.publicKey);
-
-      // @ts-ignore
-      const erProgram = getErProgram(wallet as anchor.Wallet);
+      const erProgram = getErProgram(anchorWallet);
+      // Use current time as the order's unique timestamp seed
+      const timestamp = Math.floor(Date.now() / 1000); // unix seconds as i64
+      const [orderPda] = getOrderPda(anchorWallet.publicKey, timestamp);
+      const [sponsorPda] = getSponsorPda(anchorWallet.publicKey);
 
       const tx = await erProgram.methods
-        .placeOrder(side === 'buy' ? { bid: {} } : { ask: {} }, new anchor.BN(price * 1e6), new anchor.BN(size * 1e9))
+        .placeOrder(
+          side === 'buy' ? { bid: {} } : { ask: {} },
+          new anchor.BN(Math.round(price * 1_000_000)),    // 6-decimal USDC price
+          new anchor.BN(Math.round(size  * 1_000_000_000)), // 9-decimal SOL size
+          new anchor.BN(timestamp)                          // i64 timestamp for seed
+        )
         .accounts({
-          trader: wallet.publicKey,
-          sponsor: sponsorPda,
-          authority: wallet.publicKey,
-          order: orderPda,
+          trader:        anchorWallet.publicKey,
+          sponsor:       sponsorPda,
+          authority:     anchorWallet.publicKey,
+          order:         orderPda,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
         .transaction();
 
-      tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await erConnection.getLatestBlockhash()).blockhash;
-      const signed = await wallet.signTransaction(tx);
-      await erConnection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+      tx.feePayer = anchorWallet.publicKey;
+      const { blockhash } = await erConnection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+
+      const signed = await anchorWallet.signTransaction(tx);
+      await erConnection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: true,
+      });
 
       setStatus('placed');
     } catch (e) {
