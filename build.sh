@@ -1,0 +1,1 @@
+source $HOME/.cargo/env; export PATH="/home/shivamsoni/.local/share/solana/install/active_release/bin:$PATH"; cd "/mnt/d/Gihtub Main/ghostpay/ghost-book"; cargo clean; cargo build-sbf --manifest-path programs/ghost-book/Cargo.toml
