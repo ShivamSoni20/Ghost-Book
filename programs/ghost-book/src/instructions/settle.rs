@@ -57,7 +57,7 @@ pub fn settle_match(
 
 /// Magic Action target — runs on Solana base layer after the ER commit is sealed
 pub fn finalize_settlement(
-    _ctx: Context<FinalizeSettlement>,
+    _ctx: Context<FinalizeSettlementAccounts>,
     _bid_owner:  Pubkey,
     _ask_owner:  Pubkey,
     _fill_price: u64,
@@ -112,7 +112,7 @@ pub struct SettleMatch<'info> {
 }
 
 #[derive(Accounts)]
-pub struct FinalizeSettlement<'info> {
+pub struct FinalizeSettlementAccounts<'info> {
     /// CHECK: placeholder — replace with real SPL token accounts when implementing
     pub dummy: UncheckedAccount<'info>,
 }

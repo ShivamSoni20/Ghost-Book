@@ -52,7 +52,7 @@ pub mod ghost_book {
         instructions::crank::initialize_crank(ctx)
     }
 
-    pub fn crank_match(ctx: Context<CrankMatch>) -> Result<()> {
+    pub fn crank_match(ctx: Context<CrankMatchAccounts>) -> Result<()> {
         instructions::crank::crank_match(ctx)
     }
 
@@ -67,7 +67,7 @@ pub mod ghost_book {
 
     /// Magic Action target — executed on Solana base layer after ER commit
     pub fn finalize_settlement(
-        ctx: Context<FinalizeSettlement>,
+        ctx: Context<FinalizeSettlementAccounts>,
         bid_owner: Pubkey,
         ask_owner: Pubkey,
         fill_price: u64,

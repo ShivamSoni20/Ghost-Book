@@ -39,7 +39,7 @@ pub fn initialize_crank(ctx: Context<InitializeCrank>) -> Result<()> {
     Ok(())
 }
 
-pub fn crank_match(_ctx: Context<CrankMatch>) -> Result<()> {
+pub fn crank_match(_ctx: Context<CrankMatchAccounts>) -> Result<()> {
     // TEE matching engine logic will run here
     Ok(())
 }
@@ -56,6 +56,7 @@ pub struct InitializeCrank<'info> {
         seeds = [b"crank_state"],
         bump
     )]
+    /// CHECK: crank state account
     pub crank_state: AccountInfo<'info>, // Can be UncheckedAccount
 
     /// CHECK: MagicBlock Magic Program
@@ -64,7 +65,7 @@ pub struct InitializeCrank<'info> {
 }
 
 #[derive(Accounts)]
-pub struct CrankMatch<'info> {
+pub struct CrankMatchAccounts<'info> {
     /// CHECK: crank signer
     pub crank: UncheckedAccount<'info>,
 }
