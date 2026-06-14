@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { getErProgram, getOrderPda, getSponsorPda } from '../lib/program';
 import { erConnection } from '../lib/connections';
@@ -16,7 +16,7 @@ export default function PlaceOrder() {
     if (!anchorWallet) return;
     setStatus('encrypting');
     try {
-      const erProgram = getErProgram(anchorWallet);
+      const erProgram = getErProgram(anchorWallet as anchor.Wallet);
       // Use current time as the order's unique timestamp seed
       const timestamp = Math.floor(Date.now() / 1000); // unix seconds as i64
       const [orderPda] = getOrderPda(anchorWallet.publicKey, timestamp);
@@ -35,7 +35,7 @@ export default function PlaceOrder() {
           authority:     anchorWallet.publicKey,
           order:         orderPda,
           systemProgram: anchor.web3.SystemProgram.programId,
-        })
+        } as any)
         .transaction();
 
       tx.feePayer = anchorWallet.publicKey;

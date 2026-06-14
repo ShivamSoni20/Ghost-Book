@@ -2,8 +2,8 @@ import * as anchor from "@coral-xyz/anchor";
 import { baseConnection, erConnection } from "./connections";
 
 // Generated after anchor build — import the IDL
-import IDL from "../../../target/idl/ghost_book.json";
-import type { GhostBook } from "../../../target/types/ghost_book";
+import IDL from "../idl/ghost_book.json";
+import type { GhostBook } from "../idl/ghost_book";
 
 const PROGRAM_ID = new anchor.web3.PublicKey(
   "DBAv87orWGKYgTka13SJdzD4eozyd46wQMCzAjjHqZ5h"
@@ -13,14 +13,14 @@ export function getBaseProgram(wallet: anchor.Wallet) {
   const provider = new anchor.AnchorProvider(baseConnection, wallet, {
     commitment: "confirmed",
   });
-  return new anchor.Program<GhostBook>(IDL as any, PROGRAM_ID, provider);
+  return new anchor.Program<GhostBook>(IDL as any, provider);
 }
 
 export function getErProgram(wallet: anchor.Wallet) {
   const provider = new anchor.AnchorProvider(erConnection, wallet, {
     commitment: "confirmed",
   });
-  return new anchor.Program<GhostBook>(IDL as any, PROGRAM_ID, provider);
+  return new anchor.Program<GhostBook>(IDL as any, provider);
 }
 
 export function getSponsorPda(trader: anchor.web3.PublicKey) {

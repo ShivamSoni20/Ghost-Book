@@ -1,6 +1,7 @@
-import React from 'react';
+// React import removed
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 
-export default function LandingPage({ onLaunch }: { onLaunch: () => void }) {
+export default function LandingPage() {
   return (
     <div id="landing" className="page active">
       {/* Nav */}
@@ -16,8 +17,7 @@ export default function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <span>Security</span>
         </div>
         <div className="nav-right">
-          <button className="btn btn-ghost btn-sm" onClick={onLaunch}>Sign in</button>
-          <button className="btn btn-primary btn-sm" onClick={onLaunch}><i className="ti ti-bolt"></i> Launch app</button>
+          <WalletMultiButton />
         </div>
       </nav>
 
@@ -29,7 +29,7 @@ export default function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <h1>Trade with<br/><em>zero visibility</em></h1>
         <p>The first fully private onchain limit order book on Solana. Your orders live as encrypted ephemeral accounts inside a TEE — invisible to validators, searchers, and block explorers until the moment they fill.</p>
         <div className="hero-btns">
-          <button className="btn btn-primary btn-lg" onClick={onLaunch}>Open trading app <i className="ti ti-arrow-right"></i></button>
+          <WalletMultiButton />
           <button className="btn btn-outline btn-lg"><i className="ti ti-book-2"></i> Read the docs</button>
         </div>
         <div className="hero-note"><i className="ti ti-shield-check" style={{color:'var(--green)',fontSize:'13px'}}></i> Non-custodial · Open source · Intel TDX verified</div>
@@ -155,7 +155,7 @@ export default function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <h2>Start trading invisibly</h2>
           <p>Connect your Solana wallet and place your first private limit order in under 60 seconds. No registration, non-custodial, fully onchain.</p>
           <div className="cta-btns">
-            <button className="btn btn-primary btn-lg" onClick={onLaunch}><i className="ti ti-bolt"></i> Launch Ghost Book</button>
+            <WalletMultiButton />
             <button className="btn btn-outline btn-lg"><i className="ti ti-brand-github"></i> View on GitHub</button>
           </div>
         </div>

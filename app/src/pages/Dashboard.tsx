@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import PlaceOrder from '../components/PlaceOrder';
 import { getAuthToken } from '../lib/auth';
-import { getPrivateBalance } from '../lib/paymentsApi';
+import { getPrivateBalance, buildDepositTx, buildWithdrawTx } from '../lib/paymentsApi';
+import { baseConnection, erConnection } from '../lib/connections';
+import { VersionedTransaction, Transaction } from '@solana/web3.js';
 
-export default function Dashboard({ onBack }: { onBack: () => void }) {
+const USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+
+export default function Dashboard() {
   const wallet = useWallet();
   const [currentView, setCurrentView] = useState<'orderbook' | 'myorders' | 'history' | 'portfolio' | 'settings'>('orderbook');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -15,37 +20,107 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
   
   const [authToken, setAuthToken] = useState('');
   const [privateBalance, setPrivateBalance] = useState(0);
+  const [solBalance, setSolBalance] = useState(0);
   const [trades, setTrades] = useState<any[]>([]);
+  const [isTransferring, setIsTransferring] = useState(false);
 
-  // Dummy trades generator
-  const generateTrade = () => {
-    const isBuy = Math.random() > 0.5;
-    const price = (142.38 + (Math.random() - 0.5) * 0.4).toFixed(2);
-    const size = (Math.random() * 5 + 0.5).toFixed(1);
-    const now = new Date();
-    const t = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0') + ':' + now.getSeconds().toString().padStart(2, '0');
-    return { id: Math.random(), isBuy, price, size, time: t };
+  const handleTransfer = async () => {
+    if (!wallet.publicKey || !wallet.signTransaction) return;
+    setIsTransferring(true);
+    try {
+      const amountBaseUnits = Number(modalAmount) * 1_000_000; // USDC has 6 decimals
+      let res;
+      if (modalTab === 'deposit') {
+        res = await buildDepositTx({
+          owner: wallet.publicKey.toBase58(),
+          mint: USDC_MINT,
+          amount: amountBaseUnits
+        });
+      } else {
+        // For withdraw, we need auth token
+        let token = authToken;
+        if (!token) {
+          try {
+            token = await getAuthToken(wallet as any);
+            setAuthToken(token);
+            sessionStorage.setItem('auth_token', token);
+          } catch (authErr) {
+            showToast('Error: Wallet signature rejected');
+            setIsTransferring(false);
+            return;
+          }
+        }
+        res = await buildWithdrawTx({
+          owner: wallet.publicKey.toBase58(),
+          mint: USDC_MINT,
+          amount: amountBaseUnits,
+          token
+        });
+      }
+
+      if (!res || !res.transactionBase64) {
+        showToast('Error: API returned no transaction');
+        setIsTransferring(false);
+        return;
+      }
+
+      const txBytes = Uint8Array.from(atob(res.transactionBase64), c => c.charCodeAt(0));
+      let tx;
+      try {
+        tx = VersionedTransaction.deserialize(txBytes);
+      } catch (e) {
+        tx = Transaction.from(txBytes);
+      }
+
+      const conn = res.sendTo === 'ephemeral' ? erConnection : baseConnection;
+      await wallet.sendTransaction(tx as any, conn);
+      
+      showToast(`${modalTab === 'deposit' ? 'Deposit' : 'Withdrawal'} transaction sent!`);
+      setIsModalOpen(false);
+
+      // Refresh balances after 3s
+      setTimeout(() => {
+        if (wallet.publicKey) {
+          baseConnection.getBalance(wallet.publicKey).then(b => setSolBalance(b / 1e9)).catch(console.error);
+          if (authToken) {
+            getPrivateBalance(wallet.publicKey.toBase58(), USDC_MINT, authToken)
+              .then(b => setPrivateBalance(b))
+              .catch(console.error);
+          }
+        }
+      }, 3000);
+      
+    } catch (e: any) {
+      console.error(e);
+      showToast(`Error: ${e.message}`);
+    } finally {
+      setIsTransferring(false);
+    }
   };
 
+
   useEffect(() => {
-    if (wallet.publicKey && !authToken && !sessionStorage.getItem('auth_token')) {
-      getAuthToken(wallet as any).then(token => {
-        setAuthToken(token);
-        sessionStorage.setItem('auth_token', token);
-      }).catch(console.error);
-    } else if (sessionStorage.getItem('auth_token')) {
+    // Only fetch SOL balance on connect — auth is triggered on demand (deposit/withdraw)
+    if (sessionStorage.getItem('auth_token')) {
       setAuthToken(sessionStorage.getItem('auth_token')!);
+    }
+    if (wallet.publicKey) {
+      baseConnection.getBalance(wallet.publicKey).then(b => setSolBalance(b / 1e9)).catch(console.error);
     }
   }, [wallet.publicKey]);
 
   useEffect(() => {
-    const initial = Array(7).fill(0).map(generateTrade);
-    setTrades(initial);
-    const interval = setInterval(() => {
-      setTrades(prev => [generateTrade(), ...prev.slice(0, 6)]);
-    }, 3200);
+    if (!wallet.publicKey || !authToken) return;
+    const fetchBal = () => {
+      getPrivateBalance(wallet.publicKey!.toBase58(), USDC_MINT, authToken)
+        .then(b => setPrivateBalance(b))
+        .catch(console.error);
+    };
+    fetchBal();
+    const interval = setInterval(fetchBal, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [wallet.publicKey, authToken]);
+
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -64,19 +139,13 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div className="badge badge-green" style={{ fontSize: '11px' }}><span className="live-dot"></span>Devnet live</div>
-          {wallet.publicKey ? (
-            <div className="wallet-pill"><div className="w-dot"></div>{wallet.publicKey.toBase58().slice(0, 4)}...{wallet.publicKey.toBase58().slice(-4)}</div>
-          ) : (
-            <div className="wallet-pill">Not connected</div>
-          )}
-          <button className="btn btn-ghost btn-sm" onClick={onBack}><i className="ti ti-arrow-left"></i> Back</button>
+          <WalletMultiButton />
         </div>
       </nav>
 
       <div className="db-wrap" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {/* Sidebar */}
         <aside className="sidebar">
-          <div className="sb-logo"><div className="logo-mark" style={{ width: '22px', height: '22px', fontSize: '11px' }}>G</div>Ghost Book</div>
 
           <div className="sb-section">Trading</div>
           <div className={`sb-item ${currentView === 'orderbook' ? 'active' : ''}`} onClick={() => setCurrentView('orderbook')}><i className="ti ti-chart-candle"></i>Order book</div>
@@ -124,23 +193,23 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
               <div className="metrics">
                 <div className="metric">
                   <div className="metric-lbl">Private balance</div>
-                  <div className="metric-val">${privateBalance > 0 ? privateBalance : '4,820'}</div>
+                  <div className="metric-val">${privateBalance > 0 ? (Number(privateBalance) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</div>
                   <div className="metric-sub neutral"><i className="ti ti-shield-lock" style={{ fontSize: '11px' }}></i>USDC in PER</div>
                 </div>
                 <div className="metric">
                   <div className="metric-lbl">Open orders</div>
-                  <div className="metric-val">3</div>
+                  <div className="metric-val">0</div>
                   <div className="metric-sub neutral"><i className="ti ti-eye-off" style={{ fontSize: '11px' }}></i>Encrypted in TEE</div>
                 </div>
                 <div className="metric">
                   <div className="metric-lbl">24h volume</div>
-                  <div className="metric-val">$12,450</div>
-                  <div className="metric-sub up"><i className="ti ti-arrow-up" style={{ fontSize: '11px' }}></i>+18.3% today</div>
+                  <div className="metric-val">$0</div>
+                  <div className="metric-sub neutral"><i className="ti ti-minus" style={{ fontSize: '11px' }}></i>No data</div>
                 </div>
                 <div className="metric">
                   <div className="metric-lbl">Unrealised PnL</div>
-                  <div className="metric-val" style={{ color: 'var(--green)' }}>+$234</div>
-                  <div className="metric-sub up"><i className="ti ti-arrow-up" style={{ fontSize: '11px' }}></i>+4.9% return</div>
+                  <div className="metric-val">$0.00</div>
+                  <div className="metric-sub neutral"><i className="ti ti-minus" style={{ fontSize: '11px' }}></i>No data</div>
                 </div>
               </div>
 
@@ -177,24 +246,9 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
                       <span style={{ textAlign: 'right' }}>Size (SOL)</span>
                       <span>Total</span>
                     </div>
-                    {/* Asks */}
-                    <div className="ob-row" style={{ borderBottom: '0.5px solid var(--border-light)' }}>
-                      <div className="ob-row-bar" style={{ width: '28%', background: 'rgba(217,64,64,.06)' }}></div>
-                      <span className="ob-price ask">143.42</span><span className="ob-size">4.2</span><span className="ob-total">600.36</span>
-                    </div>
-                    <div className="ob-row" style={{ borderBottom: '0.5px solid var(--border-light)' }}>
-                      <div className="ob-row-bar" style={{ width: '52%', background: 'rgba(217,64,64,.06)' }}></div>
-                      <span className="ob-price ask">143.20</span><span className="ob-size">12.4</span><span className="ob-total">1775.68</span>
-                    </div>
-                    <div className="ob-spread">Spread <span>0.12</span> · Last <span style={{ color: 'var(--green)' }}>$142.38</span></div>
-                    {/* Bids */}
-                    <div className="ob-row" style={{ borderBottom: '0.5px solid var(--border-light)' }}>
-                      <div className="ob-row-bar" style={{ width: '60%', background: 'rgba(26,155,114,.07)' }}></div>
-                      <span className="ob-price bid">142.38</span><span className="ob-size">15.2</span><span className="ob-total">2164.18</span>
-                    </div>
-                    <div className="ob-row" style={{ borderBottom: '0.5px solid var(--border-light)' }}>
-                      <div className="ob-row-bar" style={{ width: '38%', background: 'rgba(26,155,114,.07)' }}></div>
-                      <span className="ob-price bid">142.20</span><span className="ob-size">9.6</span><span className="ob-total">1365.12</span>
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                      <i className="ti ti-eye-off" style={{ display: 'block', fontSize: '24px', marginBottom: '8px', opacity: 0.5 }}></i>
+                      Order book is fully private.<br/>No public data visible.
                     </div>
                   </div>
                 </div>
@@ -211,7 +265,7 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
                     <span>Price (USDC)</span><span>Size (SOL)</span><span style={{ textAlign: 'right' }}>Time</span>
                   </div>
                   <div id="trades-list">
-                    {trades.map(t => (
+                    {trades.length > 0 ? trades.map(t => (
                       <div key={t.id} className="trade-row" style={{ animation: 'fadeIn .3s ease both' }}>
                         <span className={`trade-price ${t.isBuy ? 'buy' : 'sell'}`}>{t.price}</span>
                         <span className="trade-size">{t.size}</span>
@@ -220,22 +274,19 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
                           <span className="ghost-tag"><i className="ti ti-eye-off" style={{ fontSize: '9px' }}></i>ghost</span>
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                        No recent trades
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Positions */}
                 <div className="card card-pad">
-                  <div className="card-title">Open positions <span>3 active</span></div>
-                  <div className="pos-row">
-                    <div className="pos-left">
-                      <div className="pos-sym">SOL / USDC</div>
-                      <div className="pos-meta">Long · 10 SOL · avg $138.20</div>
-                    </div>
-                    <div className="pos-right">
-                      <div className="pos-pnl up">+$41.80</div>
-                      <div className="pos-pct up">+3.02%</div>
-                    </div>
+                  <div className="card-title">Open positions <span>0 active</span></div>
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    No open positions
                   </div>
                 </div>
               </div>
@@ -247,8 +298,9 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
                   <div className="act-tab active">All</div>
                   <div className="act-tab">Matches</div>
                 </div>
-                <div className="act-row"><div className="act-icon match"><i className="ti ti-check"></i></div><div className="act-body"><div className="act-title">Order matched</div><div className="act-desc">Bought 2.1 SOL at $142.38 · settled on Solana mainnet atomically</div></div><div className="act-time">12:44:01</div></div>
-                <div className="act-row"><div className="act-icon deposit"><i className="ti ti-circle-arrow-down"></i></div><div className="act-body"><div className="act-title">Deposit confirmed</div><div className="act-desc">500 USDC deposited into Private Ephemeral Rollup · balance updated privately</div></div><div className="act-time">12:30:15</div></div>
+                <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                  No recent activity
+                </div>
               </div>
             </div>
           )}
@@ -260,16 +312,66 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
                 <div className="orders-thead">
                   <span>Side</span><span>Pair</span><span>Price</span><span>Size</span><span>Filled</span><span>Action</span>
                 </div>
-                <div className="orders-row">
-                  <span><span className="badge badge-green">Buy</span></span>
-                  <span className="mono" style={{ fontSize: '12.5px' }}>SOL/USDC</span>
-                  <span className="mono" style={{ color: 'var(--green)' }}>$142.00</span>
-                  <span className="mono">5.0 SOL</span>
-                  <span><div style={{ fontSize: '11.5px', color: 'var(--text-tertiary)' }}>0%</div></span>
-                  <span><button className="cancel-order-btn">Cancel</button></span>
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                  You have no open orders
                 </div>
               </div>
               <div style={{ marginTop: '10px' }} className="privacy-tag"><i className="ti ti-shield-lock"></i>These orders exist as encrypted ephemeral accounts in the TEE. They are invisible to validators, searchers, and block explorers.</div>
+            </div>
+          )}
+
+          {currentView === 'history' && (
+            <div id="view-history">
+              <div className="db-header"><h2 style={{ fontSize: '16px', fontWeight: 600 }}>Trade history</h2></div>
+              <div className="card card-pad">
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-tertiary)' }}>No recent trade history available.</div>
+              </div>
+            </div>
+          )}
+
+          {currentView === 'portfolio' && (
+            <div id="view-portfolio">
+              <div className="db-header"><h2 style={{ fontSize: '16px', fontWeight: 600 }}>Portfolio</h2></div>
+              <div className="card card-pad">
+                <div className="pos-row" style={{ padding: '20px' }}>
+                  <div className="pos-left">
+                    <div className="pos-sym">SOL (Base Layer)</div>
+                    <div className="pos-meta">Public wallet balance</div>
+                  </div>
+                  <div className="pos-right">
+                    <div className="pos-val" style={{ fontSize: '16px', fontWeight: 600 }}>{solBalance.toFixed(4)} SOL</div>
+                  </div>
+                </div>
+                <div className="pos-row" style={{ padding: '20px', borderTop: '0.5px solid var(--border-light)' }}>
+                  <div className="pos-left">
+                    <div className="pos-sym">USDC (Encrypted TEE)</div>
+                    <div className="pos-meta">Private Ephemeral Rollup Balance</div>
+                  </div>
+                  <div className="pos-right">
+                    <div className="pos-val" style={{ fontSize: '16px', fontWeight: 600 }}>{privateBalance} USDC</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {currentView === 'settings' && (
+            <div id="view-settings">
+              <div className="db-header"><h2 style={{ fontSize: '16px', fontWeight: 600 }}>Preferences</h2></div>
+              <div className="card card-pad" style={{ padding: '20px' }}>
+                <div className="form-field">
+                  <label>RPC Endpoint (Base)</label>
+                  <input className="form-input" disabled value="https://api.devnet.solana.com" />
+                </div>
+                <div className="form-field">
+                  <label>TEE Endpoint (Encrypted)</label>
+                  <input className="form-input" disabled value="https://devnet-tee.magicblock.app" />
+                </div>
+                <div className="form-field">
+                  <label>Payments API</label>
+                  <input className="form-input" disabled value="https://payments.magicblock.app" />
+                </div>
+              </div>
             </div>
           )}
         </main>
@@ -304,11 +406,8 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
               <i className="ti ti-info-circle"></i>
               {modalTab === 'deposit' ? 'Funds move from your Solana wallet into the Private Ephemeral Rollup via the MagicBlock Payments API. Encrypted and private.' : 'Funds move from the Private Ephemeral Rollup back to your Solana wallet. Signed and sent to the ER RPC.'}
             </div>
-            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '11px' }} onClick={() => {
-              showToast(modalTab === 'deposit' ? 'Deposit confirmed' : 'Withdrawal confirmed');
-              setIsModalOpen(false);
-            }}>
-              <i className={modalTab === 'deposit' ? "ti ti-circle-arrow-down" : "ti ti-circle-arrow-up"}></i> Confirm {modalTab}
+            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '11px' }} onClick={handleTransfer} disabled={isTransferring}>
+              <i className={modalTab === 'deposit' ? "ti ti-circle-arrow-down" : "ti ti-circle-arrow-up"}></i> {isTransferring ? 'Processing...' : `Confirm ${modalTab}`}
             </button>
           </div>
         </div>
